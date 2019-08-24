@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
@@ -40,9 +41,16 @@ namespace TimeCard.Api.External.Controllers {
     [ProducesResponseType(400)]
     public async Task<ActionResult> RegisterUser([FromBody] RegisterRequest data) {
         var user = _mapper.Map<User>(data);
-        var result = await _userManager.CreateAsync(user);
+        var result = await _userManager.CreateAsync(user, data.Password);
+        if (!result.Succeeded) return BadRequest(result.Errors.Where(e => e.Code != "DuplicateUserName"));
 
-        return Ok();
+        var userResponse = _mapper.Map<UserAndTokenResponse.UserAndTokenUserResponse>(user);
+        var token = _tokenGenerator.GenerateToken(user.Id);
+
+        return Ok( new UserAndTokenResponse{
+          User = userResponse,
+          Token = token
+        });
     }
   }
 }

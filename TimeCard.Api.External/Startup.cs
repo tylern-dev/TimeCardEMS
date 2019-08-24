@@ -7,14 +7,21 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
-using TimeCard.Api.Core.Models;
-using TimeCard.Api.Core.Data;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
 using System.Text;
+using System.Security.Claims;
+using TimeCard.Api.Services;
+using TimeCard.Api.Services.Interfaces;
+using TimeCard.Api.Core.Models;
+using TimeCard.Api.Core.Data;
+using TimeCard.Api.Core.Interfaces;
+using AutoMapper;
 
 namespace TimeCard.Api.External
 {
@@ -34,8 +41,16 @@ namespace TimeCard.Api.External
         }
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddMvc();
+            services.AddMvc()
+                // .SetCompatibilityVersion(CompatibilityVersion.Version_2_1)
+                .AddJsonOptions(options => {
+                    options.SerializerSettings.ReferenceLoopHandling = ReferenceLoopHandling.Ignore;
+                });
 
+            services.Configure<JwtTokenGeneratorOptions>(Configuration.GetSection("Jwt"));
+            services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
+            services.AddScoped(typeof(IRepository<>), typeof(EFRepository<>));
+            services.AddScoped(typeof(IAsyncRepository<>), typeof(EFRepository<>));
             services.AddDbContext<TimeCardDbContext>(options => options.UseSqlServer(Configuration.GetConnectionString("DefaultConnection")));
 
             services.AddIdentity<User, UserRole>(options =>{
@@ -68,10 +83,25 @@ namespace TimeCard.Api.External
                     ClockSkew = TimeSpan.Zero
                 };
             });
+
+            services.AddCors(options => {
+                options.AddPolicy("AllowAll",
+                    builder => builder.AllowAnyOrigin()
+                        .AllowAnyHeader()
+                        .AllowAnyMethod()
+                        .AllowCredentials()
+                        .Build());
+            });
+
+            services.AddAuthorization(options => {
+            options.AddPolicy("UserId", policy => policy.RequireClaim(ClaimTypes.NameIdentifier));
+            });
+
+            services.AddAutoMapper();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IHostingEnvironment env)
+        public void Configure(IApplicationBuilder app, IHostingEnvironment env, TimeCardDbContext dbContext)
         {
             if (env.IsDevelopment())
             {
@@ -82,6 +112,8 @@ namespace TimeCard.Api.External
             // {
             //     await context.Response.WriteAsync("Hello World!");
             // });
+            app.UseCors("AllowAll");
+            dbContext.Database.Migrate();
             app.UseAuthentication();
             app.UseMvc();
         }
